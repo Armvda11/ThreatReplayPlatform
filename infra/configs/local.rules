@@ -1,0 +1,11 @@
+# 1000001 — ICMP (ping) simple
+alert icmp any any -> any any (msg:"ICMP ping detected - local test"; sid:1000001; rev:1;)
+
+# 1000002 — SYN scan (Nmap) : 3 SYN en 10s depuis la même IP
+alert tcp any any -> any any (flags:S; msg:"Possible SYN scan (local)"; detection_filter:track by_src,count 3,seconds 10; sid:1000002; rev:1;)
+
+# 1000003 — DNS query vers google.com (pour tester http_dns.pcap)
+alert dns any any -> any any (msg:"DNS query to google.com"; dns.query; content:"google.com"; nocase; sid:1000003; rev:1;)
+
+# 1000004 — HTTP host example.com (pour tester http_dns.pcap)
+alert http any any -> any any (msg:"HTTP request to example.com"; flow:established,to_server; content:"example.com"; http_header; sid:1000004; rev:1;)

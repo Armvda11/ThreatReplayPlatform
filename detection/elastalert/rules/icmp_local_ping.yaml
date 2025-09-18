@@ -1,0 +1,17 @@
+name: ICMP Local Ping(sid:1000001)
+type: any
+index: .ds-filebeat-*
+filter:
+ -  query_string:
+      query: 'alert.signature_id:1000001'
+
+# Augmenter la période de recherche pour trouver des alertes plus anciennes
+timeframe:
+  days: 1
+
+# Ignorer les alertes déjà vues
+realert:
+  minutes: 5
+
+alert:
+ - debug

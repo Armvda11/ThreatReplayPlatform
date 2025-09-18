@@ -1,0 +1,20 @@
+%YAML 1.1
+---
+
+logging:
+  default-log-level: info
+  outputs:
+    - console:
+        enabled: true
+
+outputs:
+  - eve-log:
+      enabled: yes
+      filetype: regular
+      filename: /var/log/suricata/eve.json
+      types: [alert, flow, stats, icmp, dns, http, tls, ssh]
+
+# === CONFIG DES REGLES ===
+default-rule-path: /etc/suricata/rules
+rule-files:
+  - local.rules

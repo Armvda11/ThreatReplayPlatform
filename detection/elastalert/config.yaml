@@ -1,0 +1,20 @@
+# Configuration ElasticSearch
+es_host: elasticsearch
+es_port: 9200
+use_ssl: False
+verify_certs: False
+
+# Chemins
+rules_folder: /opt/elastalert/rules
+
+# Options d'exécution
+run_every:
+  seconds: 30
+buffer_time:
+  minutes: 2
+
+# Index de suivi d'ElastAlert
+writeback_index: elastalert_status
+
+# Debug pour plus d'informations
+debug: True

@@ -1,0 +1,158 @@
+
+# Threat Replay Platform
+
+Plateforme locale pour **rejouer des scénarios réseau (PCAP)** et **évaluer la détection** dans un environnement contrôlé.
+
+* Ingestion : **Suricata** (EVE JSON) → **Filebeat** → **Elasticsearch**
+* Visualisation : **Kibana**
+* Détection : **règles locales Suricata**
+* Alerting : **ElastAlert2** (sortie `debug`)
+* Orchestration : script **`trp.sh`**
+
+## Structure du repo
+
+```
+ThreatReplayPlatform/
+├─ data/pcaps/               # PCAPs rejouables (attack.pcap = actif)
+│  ├─ attack.pcap
+│  ├─ http_dns.pcap
+│  └─ nmap_scan.pcap
+├─ detection/elastalert/
+│  ├─ config.yaml
+│  └─ rules/
+│     └─ icmp_local_ping.yaml
+├─ infra/
+│  ├─ docker-compose.yml     # ES, Kibana, Suricata, Filebeat, ElastAlert2
+│  ├─ configs/
+│  │  ├─ filebeat.yml
+│  │  ├─ suricata.yaml
+│  │  └─ local.rules         # règles locales Suricata
+│  └─ logs/suricata/eve.json
+├─ trp.sh                    # utilitaire (up/down/pcap/logs…)
+└─ readme                    # notes locales (facultatif)
+```
+
+## Prérequis
+
+* Docker Desktop (Compose v2 activé)
+* WSL2/Linux ou macOS/Windows
+* Accès localhost: `9200` (Elasticsearch), `5601` (Kibana)
+
+## Démarrage rapide
+
+```bash
+# Lancer la stack (depuis la racine du projet)
+./trp.sh up
+```
+
+Première ouverture de Kibana :
+
+1. Créer une **Data View** avec le pattern `filebeat-*` et le champ temps `@timestamp`.
+2. Dans Discover, passer la période sur **All time** puis **Refresh**.
+
+### Rejouer un scénario
+
+```bash
+# Sélectionner un PCAP (copie vers data/pcaps/attack.pcap + relance Suricata)
+./trp.sh pcap nmap_scan.pcap
+# ou
+./trp.sh pcap http_dns.pcap
+```
+
+### Commandes utiles
+
+```bash
+./trp.sh status           # état des conteneurs + indices ES
+./trp.sh logs suricata    # suivre les logs d'un service (suricata/filebeat/…)
+./trp.sh tail-eve         # suivre infra/logs/suricata/eve.json
+./trp.sh reset-eve        # réinitialiser eve.json et rejouer le PCAP
+./trp.sh reset-filebeat   # forcer la réingestion (purge registry)
+./trp.sh kibana           # ouvrir Kibana
+./trp.sh down             # arrêter la stack
+```
+
+## Requêtes Kibana (KQL)
+
+* Tous les événements Suricata :
+  `event.module: suricata`
+* Alertes :
+  `event_type: alert OR alert.signature:*`
+* Exemple règle locale ICMP (sid 1000001) :
+  `alert.signature_id: 1000001`
+
+Champs utiles en colonnes : `@timestamp`, `src_ip`, `dest_ip`, `proto`, `alert.signature`, `alert.signature_id`.
+
+## Règles locales Suricata
+
+Fichier : `infra/configs/local.rules` (exemples courants) :
+
+```rules
+# 1000001 — ICMP (ping) test
+alert icmp any any -> any any (msg:"ICMP ping detected - local test"; sid:1000001; rev:1;)
+
+# 1000002 — SYN scan (≥3 SYN/10s par IP source)
+alert tcp any any -> any any (flags:S; msg:"Possible SYN scan (local)";
+  detection_filter:track by_src,count 3,seconds 10; sid:1000002; rev:1;)
+
+# 1000003 — DNS vers google.com (http_dns.pcap)
+alert dns any any -> any any (msg:"DNS query to google.com";
+  dns.query; content:"google.com"; nocase; sid:1000003; rev:1;)
+
+# 1000004 — HTTP vers example.com (http_dns.pcap)
+alert http any any -> any any (msg:"HTTP request to example.com";
+  flow:established,to_server; http.host; content:"example.com";
+  nocase; sid:1000004; rev:1;)
+```
+
+> Après modification des règles, rejouer un PCAP :
+> `./trp.sh pcap <pcap>`
+
+## Alerting (ElastAlert2)
+
+* Config globale : `detection/elastalert/config.yaml` (inclut `rules_folder`)
+* Règles : `detection/elastalert/rules/*.yaml`
+* Exemple (ICMP `alert.signature_id:1000001`) :
+
+```yaml
+name: ICMP Local Ping(sid:1000001)
+type: any
+index: .ds-filebeat-*
+filter:
+  - query_string:
+      query: 'alert.signature_id:1000001'
+timeframe:
+  days: 1
+realert:
+  minutes: 5
+alert:
+  - debug
+```
+
+Vérifier les alertes :
+
+```bash
+./trp.sh logs elastalert
+```
+
+## Dépannage
+
+* Rien de neuf dans Discover → période **All time** puis **Refresh**.
+* Événements non réingérés → `./trp.sh reset-filebeat`.
+* `eve.json` obsolète ou saturé → `./trp.sh reset-eve`.
+* Pas d’alertes → vérifier que `local.rules` est monté et déclaré dans `suricata.yaml` :
+
+```yaml
+default-rule-path: /etc/suricata/rules
+rule-files:
+  - local.rules
+```
+
+## Pistes d’évolution
+
+* Importer les signatures **Emerging Threats Open** via `suricata-update` (en complément des règles locales).
+* Ajouter d’autres PCAPs thématiques (scan variantes, DNS NXDOMAIN burst, SSH brute, etc.).
+* Automatiser des **tests de détection** (scripts qui interrogent Elasticsearch `_count` après replay).
+* Créer un **dashboard Kibana** dédié (timeline des alertes, top signatures, top `src_ip`, donut `proto`).
+* Optionnel : intégrer **Zeek** (conn/dns/http) et corréler via `network.community_id`.
+* Optionnel : sorties ElastAlert2 vers Slack/email (webhook).
+
